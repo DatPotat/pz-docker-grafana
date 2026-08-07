@@ -1,4 +1,4 @@
-# Project Zomboid b42 + мониторинг
+# Project Zomboid b42.20 MP + мониторинг
 
 Docker Compose стек: выделенный сервер Project Zomboid build 42 с готовыми метриками, логами, бэкапами и ежедневным перезапуском по расписанию.
 
