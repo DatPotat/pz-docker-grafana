@@ -1,0 +1,159 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ============================================
+  # Project Zomboid Dedicated Server
+  # ============================================
+  zomboid:
+    build: ./zomboid
+    container_name: zomboid
+    restart: unless-stopped
+    # PZ only flushes the world reliably on a clean shutdown. Give the JVM time
+    # to finish saving before Docker sends SIGKILL.
+    stop_grace_period: 120s
+    env_file: .env
+    ports:
+      # Game ports: the only ones reachable from the internet.
+      - "${PZ_PORT:-16261}:${PZ_PORT:-16261}/udp"
+      - "${PZ_UDP_PORT:-16262}:${PZ_UDP_PORT:-16262}/udp"
+      # RCON stays on loopback. Reach it through an SSH tunnel, never directly.
+      - "127.0.0.1:${PZ_RCON_PORT:-27015}:${PZ_RCON_PORT:-27015}/tcp"
+    volumes:
+      - ./data/Zomboid:/root/Zomboid
+      - ./server:/opt/pzserver
+    logging: *default-logging
+
+  # ============================================
+  # Monitoring: Node Exporter (host metrics)
+  # ============================================
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    logging: *default-logging
+
+  # ============================================
+  # Monitoring: PZ Exporter
+  # Live player count via RCON + counters tailed from the console log.
+  # ============================================
+  rcon-exporter:
+    build: ./rcon-exporter
+    container_name: rcon-exporter
+    restart: unless-stopped
+    environment:
+      - RCON_HOST=zomboid
+      - RCON_PORT=${PZ_RCON_PORT:-27015}
+      - RCON_PASSWORD=${PZ_RCON_PASSWORD:-}
+      - SCRAPE_INTERVAL=5
+      - LOG_FILE=/logs/server-console.txt
+    volumes:
+      - ./data/Zomboid:/logs:ro
+    logging: *default-logging
+
+  # ============================================
+  # Scheduler: daily save, backup and restart
+  # Same image as the exporter, different entry point. No Docker socket: the
+  # restart happens because `quit` ends the process and Docker's restart policy
+  # brings the container back.
+  # ============================================
+  scheduler:
+    build: ./rcon-exporter
+    container_name: scheduler
+    restart: unless-stopped
+    command: ["python", "scheduler.py"]
+    environment:
+      - RCON_HOST=zomboid
+      - RCON_PORT=${PZ_RCON_PORT:-27015}
+      - RCON_PASSWORD=${PZ_RCON_PASSWORD:-}
+      - MAINTENANCE_TIME=${MAINTENANCE_TIME:-13:00}
+      - MAINTENANCE_TZ=${MAINTENANCE_TZ:-Europe/Moscow}
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-3}
+    volumes:
+      # Read-only: this container archives the world, it never writes into it.
+      - ./data/Zomboid:/data:ro
+      - ./backups:/backups
+    logging: *default-logging
+
+  # ============================================
+  # Logs: Loki (storage) + Alloy (collector)
+  # Promtail reached end of life in March 2026; Alloy is its replacement.
+  # ============================================
+  loki:
+    image: grafana/loki:3.7.6
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    logging: *default-logging
+
+  alloy:
+    image: grafana/alloy:v1.18.1
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./data/Zomboid:/logs:ro
+      - alloy-data:/var/lib/alloy/data
+    logging: *default-logging
+
+  # ============================================
+  # Monitoring: Prometheus (metrics storage)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v3.13.2
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    logging: *default-logging
+
+  # ============================================
+  # Monitoring: Grafana (dashboards)
+  # ============================================
+  grafana:
+    image: grafana/grafana:13.1.2
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL:-https://localhost:3000}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Self-signed TLS. Encrypts the session so the admin password does not
+      # cross the network in clear text; browsers will warn on first visit.
+      # Generate the pair with the openssl command in the README.
+      - GF_SERVER_PROTOCOL=https
+      - GF_SERVER_CERT_FILE=/etc/grafana/certs/grafana.crt
+      - GF_SERVER_CERT_KEY=/etc/grafana/certs/grafana.key
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # Certificate and key must be readable by uid 472 (the grafana user).
+      - ./grafana/certs:/etc/grafana/certs:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    logging: *default-logging
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:
