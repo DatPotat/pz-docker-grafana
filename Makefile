@@ -4,6 +4,9 @@ BACKUP_DIR := backups
 
 .PHONY: wipe-world wipe-mods fix-perms
 
+restart:
+	docker compose restart zomboid
+
 wipe-world:
 	@printf 'Delete the world and every player record? [y/N] ' && read ans && [ "$$ans" = "y" ]
 	docker compose down
