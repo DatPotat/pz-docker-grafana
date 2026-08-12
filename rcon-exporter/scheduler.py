@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
+"""Daily maintenance window for the Project Zomboid server.
+
+At the configured local time: warn players over RCON, flush the world, archive
+it outside data/, then quit. The process exiting is what restarts the server --
+Docker's restart policy brings the container back up, which is also when PZ
+picks up updated Workshop mods.
+
+The container mounts the world read-only. It never writes into the game data.
+"""
 
 import logging
 import os
+import sys
 import tarfile
 import time
 from datetime import datetime, timedelta
@@ -25,23 +35,15 @@ BACKUP_KEEP_DAYS = int(os.environ.get("BACKUP_KEEP_DAYS", "3"))
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "9116"))
 SAVE_SETTLE_SECONDS = int(os.environ.get("SAVE_SETTLE_SECONDS", "30"))
 
+# Saves and db are the world; Server holds the .ini and SandboxVars.lua, which
+# PZ's own backups do not cover and which are the most painful to rebuild.
 BACKUP_PATHS = ["Saves", "db", "Server"]
 
+# Seconds before the window, and what players see. Confirmed working in-game.
 WARNINGS = [
     (600, "Перезапуск сервера через 10 минут"),
     (300, "Перезапуск сервера через 5 минут"),
     (60, "Перезапуск сервера через 1 минуту"),
-    (30, "Перезапуск сервера через 30 секунд"),
-    (10, "Перезапуск сервера через 10 секунд"),
-    (9, "Перезапуск сервера через 9 секунд"),
-    (8, "Перезапуск сервера через 8 секунд"),
-    (7, "Перезапуск сервера через 7 секунд"),
-    (6, "Перезапуск сервера через 6 секунд"),
-    (5, "Перезапуск сервера через 5 секунд"),
-    (4, "Перезапуск сервера через 4 секунды"),
-    (3, "Перезапуск сервера через 3 секунды"),
-    (2, "Перезапуск сервера через 2 секунды"),
-    (1, "Перезапуск сервера через 1 секунду")
 ]
 
 backup_last_success = Gauge(
@@ -56,16 +58,20 @@ restart_last = Gauge(
     "pz_restart_last_timestamp", "Unix time of the last scheduled restart"
 )
 
+# NaN, not 0: a "seconds since" panel would otherwise read as decades until the
+# first run.
 backup_last_success.set(float("nan"))
 restart_last.set(float("nan"))
 
 
 def rcon(command):
+    """Send one RCON command. Returns the reply, or None on failure."""
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
 
 
 def next_window(now):
+    """The next occurrence of MAINTENANCE_TIME in MAINTENANCE_TZ, after now."""
     hour, minute = (int(x) for x in MAINTENANCE_TIME.split(":"))
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if target <= now:
@@ -74,6 +80,7 @@ def next_window(now):
 
 
 def sleep_until(when, tz):
+    """Sleep in short steps so a clock change or DST shift is picked up."""
     while True:
         remaining = (when - datetime.now(tz)).total_seconds()
         if remaining <= 0:
@@ -82,6 +89,7 @@ def sleep_until(when, tz):
 
 
 def make_backup():
+    """Archive the world and config into BACKUP_DIR. Returns the path."""
     stamp = datetime.now(ZoneInfo(MAINTENANCE_TZ)).strftime("%Y-%m-%dT%H-%M")
     archive = BACKUP_DIR / f"pz-backup-{stamp}.tar.gz"
     started = time.time()
@@ -108,6 +116,7 @@ def make_backup():
 
 
 def prune_backups():
+    """Delete archives older than BACKUP_KEEP_DAYS."""
     cutoff = time.time() - BACKUP_KEEP_DAYS * 86400
     for old in BACKUP_DIR.glob("pz-backup-*.tar.gz"):
         if old.stat().st_mtime < cutoff:
@@ -116,6 +125,7 @@ def prune_backups():
 
 
 def run_window():
+    """Save, back up, restart. A failed backup must not skip the restart."""
     try:
         log.info("Flushing the world")
         rcon("save")
@@ -140,7 +150,21 @@ def run_window():
         log.info("quit sent, connection closed (%s)", exc)
 
 
+def send_one(argv):
+    """One-shot mode: `scheduler.py rcon <command>`. Lets the Makefile reuse the
+    RCON credentials this container already has instead of a second copy."""
+    verb, *rest = argv
+    # servermsg expects the text quoted, and the shell strips the quotes before
+    # they reach us. Re-add them so this path matches the scheduled warnings.
+    command = f'{verb} "{" ".join(rest)}"' if verb == "servermsg" and rest else " ".join(argv)
+    print(rcon(command))
+
+
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "rcon":
+        send_one(sys.argv[2:])
+        return
+
     tz = ZoneInfo(MAINTENANCE_TZ)
     start_http_server(LISTEN_PORT)
     log.info(
@@ -170,6 +194,8 @@ def main():
         sleep_until(window, tz)
         run_window()
 
+        # The container is on its way down; wait past the window so a fast
+        # restart cannot trigger a second run for the same day.
         time.sleep(120)
 
 

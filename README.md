@@ -139,6 +139,12 @@ make wipe-mods                    # удалить скачанные моды, 
 make restart                      # быстрый рестарт контейнера сервера
 ```
 
+Команды сервера
+```bash
+docker compose exec -T scheduler python scheduler.py rcon players                          # список всех игроков в онлайне
+docker compose exec -T scheduler python scheduler.py rcon setaccesslevel <имя> <роль>      # изменение роли игрока
+```
+
 Восстановление из бэкапа делается вручную:
 
 ```bash
