@@ -50,7 +50,7 @@ services:
       - RCON_PORT=${PZ_RCON_PORT:-27015}
       - RCON_PASSWORD=${PZ_RCON_PASSWORD:-}
       - SCRAPE_INTERVAL=5
-      - LOG_FILE=/logs/server-console.txt
+      - LOG_DIR=/logs/Logs
     volumes:
       - ./data/Zomboid:/logs:ro
     logging: *default-logging
@@ -75,6 +75,7 @@ services:
       - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-3}
       - BACKUP_TIMEOUT=${BACKUP_TIMEOUT:-900}
     volumes:
+      # Read-only: this container archives the world, it never writes into it.
       - ./data/Zomboid:/data:ro
       - ./backups:/backups
     logging: *default-logging
@@ -109,7 +110,9 @@ services:
 
   # ============================================
   # Monitoring: cAdvisor (per-container CPU and memory)
-  # Pinned above v0.54.0, which is where Docker 29 support landed.
+  # ghcr.io, not gcr.io: the project moved registries at v0.53.0 and dropped the
+  # `v` prefix from tags at v0.54.0. Anything at or above v0.54.0 is required
+  # for Docker 29 support.
   # Starts without `privileged`: cAdvisor degrades to whatever access it has.
   # If metrics are missing, add `privileged: true` and /dev/kmsg.
   # ============================================

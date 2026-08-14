@@ -1,4 +1,3 @@
-#!/bin/bash
 set -euo pipefail
 
 PZ_SERVER_DIR="${PZ_SERVER_DIR:-/opt/pzserver}"
@@ -22,7 +21,7 @@ echo " JVM heap:    -Xms${PZ_JVM_XMS} -Xmx${PZ_JVM_XMX}"
 echo " Validate:    ${PZ_VALIDATE}"
 echo "=========================================="
 
-# --- 1. Install or update the server via SteamCMD ---
+# --- 1. Install or update the server via SteamCMD -------------------------
 echo "[1/3] Updating server files (app ${STEAM_APP_ID})..."
 if [ "${PZ_VALIDATE}" = "true" ]; then
     steamcmd +force_install_dir "${PZ_SERVER_DIR}" \
@@ -36,7 +35,7 @@ else
         +quit
 fi
 
-# --- 2. First-run config ---
+# --- 2. First-run config --------------------------------------------------
 mkdir -p "${PZ_DATA_DIR}/Server" "${PZ_DATA_DIR}/Saves/Multiplayer"
 
 if [ -f "${INI_FILE}" ]; then
@@ -58,10 +57,14 @@ AnnounceDeath=true
 # Periodic world flush in real minutes. 0 (the game default) disables it and
 # risks losing progress on a crash; it also makes pz_autosave_total dead.
 SaveWorldEveryMinutes=10
+# The game's own backups. Period is in minutes, 0 disables them. Count applies
+# per backup type, and one archive of a grown world runs close to a gigabyte.
+BackupsPeriod=180
+BackupsCount=4
 EOF
 fi
 
-# --- 3. JVM heap ---
+# --- 3. JVM heap ----------------------------------------------------------
 if [ ! -f "${START_SCRIPT}" ]; then
     echo "ERROR: ${START_SCRIPT} not found. SteamCMD download failed?" >&2
     exit 1

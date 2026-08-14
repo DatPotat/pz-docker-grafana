@@ -1,7 +1,44 @@
+local.file_match "pz_logs" {
+	path_targets = [
+		{"__path__" = "/logs/Logs/*_DebugLog-server.txt", "job" = "zomboid", "stream" = "debug"},
+		{"__path__" = "/logs/Logs/*_connections.txt", "job" = "zomboid", "stream" = "connections"},
+		{"__path__" = "/logs/Logs/*_user.txt", "job" = "zomboid", "stream" = "user"},
+		{"__path__" = "/logs/Logs/*_chat.txt", "job" = "zomboid", "stream" = "chat"},
+		{"__path__" = "/logs/Logs/*_pvp.txt", "job" = "zomboid", "stream" = "pvp"},
+	]
+	sync_period = "10s"
+}
+
+loki.source.file "pz_logs" {
+	targets       = local.file_match.pz_logs.targets
+	forward_to    = [loki.process.pz_logs.receiver]
+	tail_from_end = true
+}
+
+loki.process "pz_logs" {
+	stage.regex {
+		expression = "^\\[(?P<ts>\\d{2}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\]"
+	}
+
+	stage.timestamp {
+		source   = "ts"
+		format   = "02-01-06 15:04:05.000"
+		location = "UTC"
+	}
+
+	stage.replace {
+		expression = "ip=\"([^\"]+)\""
+		replace    = "removed"
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
 local.file_match "pz_console" {
 	path_targets = [{
 		"__path__" = "/logs/server-console.txt",
 		"job"      = "zomboid",
+		"stream"   = "console",
 	}]
 	sync_period = "10s"
 }
