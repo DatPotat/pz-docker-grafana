@@ -418,7 +418,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Server events (per hour)",
+      "title": "Server events",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -436,14 +436,19 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 0,
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 80,
             "showPoints": "never",
             "spanNulls": true,
             "axisPlacement": "auto",
-            "gradientMode": "opacity"
+            "gradientMode": "none",
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           },
           "thresholds": {
             "mode": "absolute",
@@ -454,7 +459,8 @@
               }
             ]
           },
-          "min": 0
+          "min": 0,
+          "decimals": 0
         },
         "overrides": [
           {
@@ -489,7 +495,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(pz_errors_total{phase=\"runtime\"}[1h])",
+          "expr": "increase(pz_errors_total{phase=\"runtime\"}[$__interval])",
           "legendFormat": "Errors",
           "datasource": {
             "type": "prometheus",
@@ -498,7 +504,7 @@
         },
         {
           "refId": "B",
-          "expr": "increase(pz_warnings_total{phase=\"runtime\"}[1h])",
+          "expr": "increase(pz_warnings_total{phase=\"runtime\"}[$__interval])",
           "legendFormat": "Warnings",
           "datasource": {
             "type": "prometheus",
@@ -507,7 +513,7 @@
         },
         {
           "refId": "C",
-          "expr": "increase(pz_player_deaths_total[1h])",
+          "expr": "increase(pz_player_deaths_total[$__interval])",
           "legendFormat": "Deaths",
           "datasource": {
             "type": "prometheus",
@@ -516,7 +522,7 @@
         },
         {
           "refId": "D",
-          "expr": "increase(pz_server_starts_total[1h])",
+          "expr": "increase(pz_server_starts_total[$__interval])",
           "legendFormat": "Restarts",
           "datasource": {
             "type": "prometheus",
@@ -524,7 +530,7 @@
           }
         }
       ],
-      "description": "События работающего сервера. Шум фазы загрузки исключён: при 150 модах его сотни на каждый старт. Онлайн игроков — на панели Players."
+      "description": "Столбец = события за один шаг графика, поэтому всплеск не растягивается на час, как было бы со скользящим окном. При широком периоде шаг растёт, и столбцы становятся крупнее — числа зависят от масштаба. Шум фазы загрузки исключён."
     },
     {
       "id": 9,
