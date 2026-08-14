@@ -108,6 +108,28 @@ services:
     logging: *default-logging
 
   # ============================================
+  # Monitoring: cAdvisor (per-container CPU and memory)
+  # Pinned above v0.54.0, which is where Docker 29 support landed.
+  # Starts without `privileged`: cAdvisor degrades to whatever access it has.
+  # If metrics are missing, add `privileged: true` and /dev/kmsg.
+  # ============================================
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    container_name: cadvisor
+    restart: unless-stopped
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+    volumes:
+      - /:/rootfs:ro,rslave
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    logging: *default-logging
+
+  # ============================================
   # Monitoring: Prometheus (metrics storage)
   # ============================================
   prometheus:

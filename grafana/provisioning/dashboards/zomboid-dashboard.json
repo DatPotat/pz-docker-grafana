@@ -239,7 +239,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "dateTimeAsLocal",
           "mappings": [],
           "color": {
             "mode": "thresholds"
@@ -248,16 +248,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1200
-              },
-              {
-                "color": "red",
-                "value": 2400
               }
             ]
           },
@@ -282,14 +274,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - pz_last_autosave_timestamp",
+          "expr": "pz_last_autosave_timestamp * 1000",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           }
         }
       ],
-      "description": "SaveWorldEveryMinutes is 10, so anything past ~20 minutes is suspect."
+      "description": "Время последнего автосохранения, замеченного в логе сервера. Цветовые пороги здесь не работают: Grafana сравнивала бы их с эпохой, а не с давностью — за устареванием следит панель Log silence."
     },
     {
       "id": 5,
@@ -888,7 +880,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "description": "Live tail of server-console.txt. Edit the query to filter, e.g. |~ \"ERROR|WARN\" for problems only.",
       "options": {
@@ -925,7 +917,7 @@
         "h": 4,
         "w": 5,
         "x": 0,
-        "y": 19
+        "y": 27
       },
       "description": "Maintenance runs daily, so anything past ~26 hours means the backup stopped happening.",
       "fieldConfig": {
@@ -993,7 +985,7 @@
         "h": 4,
         "w": 5,
         "x": 5,
-        "y": 19
+        "y": 27
       },
       "description": "Sudden shrinkage means the archive lost content.",
       "fieldConfig": {
@@ -1053,7 +1045,7 @@
         "h": 4,
         "w": 4,
         "x": 15,
-        "y": 19
+        "y": 27
       },
       "description": "Any value above zero needs looking at.",
       "fieldConfig": {
@@ -1117,7 +1109,7 @@
         "h": 4,
         "w": 5,
         "x": 19,
-        "y": 19
+        "y": 27
       },
       "description": "Time since the last scheduled restart.",
       "fieldConfig": {
@@ -1185,7 +1177,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 19
+        "y": 27
       },
       "description": "How long the last archive took. The server is running and players are waiting through this, so a growing trend means the maintenance window is getting longer. The sparkline shows whether it is drifting up.",
       "fieldConfig": {
@@ -1234,6 +1226,152 @@
         {
           "refId": "A",
           "expr": "pz_backup_duration_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "CPU по контейнерам",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "description": "100% = одно полностью занятое ядро. PZ однопоточен, поэтому его линия упирается около 100 задолго до того, как хост будет загружен.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "gradientMode": "opacity"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])) * 100",
+          "legendFormat": "{{name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "RAM по контейнерам",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "description": "Working set: память, которую ядро не может освободить без свопа. Сумма с накоплением — видно и вклад каждого, и общий расход.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "gradientMode": "opacity",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name) (container_memory_working_set_bytes{name!=\"\"})",
+          "legendFormat": "{{name}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
