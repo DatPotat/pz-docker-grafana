@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import logging
 import os
 import re
@@ -45,7 +43,7 @@ LOG_PATTERNS = [
     (re.compile(r"player.*died|zombie.*killed.*player|was killed"), deaths),
     (re.compile(r"LuaNet.*Initialization.*DONE"), starts),
     (re.compile(r"Connected new client|initiating a connection"), connections),
-    (re.compile(r"Auto-saving|SaveWorld|saving map|saving world"), autosaves),
+    (re.compile(r"Saving finish"), autosaves),
     (re.compile(r"OutOfMemoryError"), oom_errors),
 ]
 

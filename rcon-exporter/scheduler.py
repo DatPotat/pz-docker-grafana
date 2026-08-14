@@ -1,16 +1,6 @@
-#!/usr/bin/env python3
-"""Daily maintenance window for the Project Zomboid server.
-
-At the configured local time: warn players over RCON, flush the world, archive
-it outside data/, then quit. The process exiting is what restarts the server --
-Docker's restart policy brings the container back up, which is also when PZ
-picks up updated Workshop mods.
-
-The container mounts the world read-only. It never writes into the game data.
-"""
-
 import logging
 import os
+import signal
 import sys
 import tarfile
 import time
@@ -32,46 +22,54 @@ MAINTENANCE_TZ = os.environ.get("MAINTENANCE_TZ", "Europe/Moscow")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", "/backups"))
 BACKUP_KEEP_DAYS = int(os.environ.get("BACKUP_KEEP_DAYS", "3"))
+BACKUP_TIMEOUT = int(os.environ.get("BACKUP_TIMEOUT", "900"))
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "9116"))
 SAVE_SETTLE_SECONDS = int(os.environ.get("SAVE_SETTLE_SECONDS", "30"))
+SHUTDOWN_SETTLE_SECONDS = int(os.environ.get("SHUTDOWN_SETTLE_SECONDS", "20"))
 
-# Saves and db are the world; Server holds the .ini and SandboxVars.lua, which
-# PZ's own backups do not cover and which are the most painful to rebuild.
 BACKUP_PATHS = ["Saves", "db", "Server"]
 
-# Seconds before the window, and what players see. Confirmed working in-game.
 WARNINGS = [
     (600, "Перезапуск сервера через 10 минут"),
     (300, "Перезапуск сервера через 5 минут"),
     (60, "Перезапуск сервера через 1 минуту"),
+    (30, "Перезапуск сервера через 30 секунд"),
+    (10, "Перезапуск сервера через 10 секунд"),
+    (9, "Перезапуск сервера через 9 секунд"),
+    (8, "Перезапуск сервера через 8 секунд"),
+    (7, "Перезапуск сервера через 7 секунд"),
+    (6, "Перезапуск сервера через 6 секунд"),
+    (5, "Перезапуск сервера через 5 секунд"),
+    (4, "Перезапуск сервера через 4 секунды"),
+    (3, "Перезапуск сервера через 3 секунды"),
+    (2, "Перезапуск сервера через 2 секунды"),
+    (1, "Перезапуск сервера через 1 секунду"),
 ]
 
 backup_last_success = Gauge(
     "pz_backup_last_success_timestamp", "Unix time of the last successful backup"
 )
 backup_size = Gauge("pz_backup_size_bytes", "Size of the last backup archive")
-backup_duration = Gauge(
-    "pz_backup_duration_seconds", "How long the last backup took"
-)
+backup_duration = Gauge("pz_backup_duration_seconds", "How long the last backup took")
 backup_failures = Counter("pz_backup_failures_total", "Failed backup attempts")
 restart_last = Gauge(
     "pz_restart_last_timestamp", "Unix time of the last scheduled restart"
 )
 
-# NaN, not 0: a "seconds since" panel would otherwise read as decades until the
-# first run.
 backup_last_success.set(float("nan"))
 restart_last.set(float("nan"))
 
 
+class BackupTimeout(Exception):
+    pass
+
+
 def rcon(command):
-    """Send one RCON command. Returns the reply, or None on failure."""
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
 
 
 def next_window(now):
-    """The next occurrence of MAINTENANCE_TIME in MAINTENANCE_TZ, after now."""
     hour, minute = (int(x) for x in MAINTENANCE_TIME.split(":"))
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if target <= now:
@@ -80,7 +78,6 @@ def next_window(now):
 
 
 def sleep_until(when, tz):
-    """Sleep in short steps so a clock change or DST shift is picked up."""
     while True:
         remaining = (when - datetime.now(tz)).total_seconds()
         if remaining <= 0:
@@ -88,50 +85,71 @@ def sleep_until(when, tz):
         time.sleep(min(remaining, 60))
 
 
+def _on_timeout(signum, frame):
+    raise BackupTimeout("backup exceeded %ss" % BACKUP_TIMEOUT)
+
+
 def make_backup():
-    """Archive the world and config into BACKUP_DIR. Returns the path."""
     stamp = datetime.now(ZoneInfo(MAINTENANCE_TZ)).strftime("%Y-%m-%dT%H-%M")
-    archive = BACKUP_DIR / f"pz-backup-{stamp}.tar.gz"
+    archive = BACKUP_DIR / ("pz-backup-%s.tar" % stamp)
+    partial = BACKUP_DIR / ("pz-backup-%s.tar.partial" % stamp)
     started = time.time()
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "w:gz") as tar:
-        for name in BACKUP_PATHS:
-            source = DATA_DIR / name
-            if source.exists():
-                tar.add(source, arcname=name)
-            else:
-                log.warning("Skipping %s: not found under %s", name, DATA_DIR)
+    signal.signal(signal.SIGALRM, _on_timeout)
+    signal.alarm(BACKUP_TIMEOUT)
+    try:
+        with tarfile.open(partial, "w") as tar:
+            for name in BACKUP_PATHS:
+                source = DATA_DIR / name
+                if source.exists():
+                    tar.add(source, arcname=name)
+                else:
+                    log.warning("Skipping %s: not found under %s", name, DATA_DIR)
+        partial.rename(archive)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    finally:
+        signal.alarm(0)
 
+    elapsed = time.time() - started
     backup_size.set(archive.stat().st_size)
-    backup_duration.set(time.time() - started)
+    backup_duration.set(elapsed)
     backup_last_success.set(time.time())
     log.info(
-        "Backup written: %s (%.1f MB, %.0fs)",
+        "Backup written: %s (%.0f MB, %.0fs)",
         archive.name,
         archive.stat().st_size / 1e6,
-        time.time() - started,
+        elapsed,
     )
     return archive
 
 
 def prune_backups():
-    """Delete archives older than BACKUP_KEEP_DAYS."""
     cutoff = time.time() - BACKUP_KEEP_DAYS * 86400
-    for old in BACKUP_DIR.glob("pz-backup-*.tar.gz"):
-        if old.stat().st_mtime < cutoff:
+    for old in BACKUP_DIR.glob("pz-backup-*"):
+        if old.name.endswith(".partial") or old.stat().st_mtime < cutoff:
             old.unlink()
-            log.info("Pruned old backup: %s", old.name)
+            log.info("Pruned: %s", old.name)
 
 
 def run_window():
-    """Save, back up, restart. A failed backup must not skip the restart."""
     try:
         log.info("Flushing the world")
         rcon("save")
         time.sleep(SAVE_SETTLE_SECONDS)
     except Exception as exc:
-        log.error("save failed, backing up anyway: %s", exc)
+        log.error("save failed: %s", exc)
+
+    try:
+        log.info("Restarting the server")
+        restart_last.set(time.time())
+        rcon("quit")
+    except Exception as exc:
+        log.info("quit sent, connection closed (%s)", exc)
+
+    time.sleep(SHUTDOWN_SETTLE_SECONDS)
 
     try:
         make_backup()
@@ -140,23 +158,14 @@ def run_window():
         backup_failures.inc()
         log.error("Backup failed: %s", exc)
 
-    try:
-        log.info("Restarting the server")
-        restart_last.set(time.time())
-        rcon("quit")
-    except Exception as exc:
-        # The server drops the connection as it shuts down, so an error here is
-        # expected as often as not.
-        log.info("quit sent, connection closed (%s)", exc)
-
 
 def send_one(argv):
-    """One-shot mode: `scheduler.py rcon <command>`. Lets the Makefile reuse the
-    RCON credentials this container already has instead of a second copy."""
     verb, *rest = argv
-    # servermsg expects the text quoted, and the shell strips the quotes before
-    # they reach us. Re-add them so this path matches the scheduled warnings.
-    command = f'{verb} "{" ".join(rest)}"' if verb == "servermsg" and rest else " ".join(argv)
+    command = (
+        '%s "%s"' % (verb, " ".join(rest))
+        if verb == "servermsg" and rest
+        else " ".join(argv)
+    )
     print(rcon(command))
 
 
@@ -186,16 +195,13 @@ def main():
         for offset, message in WARNINGS:
             sleep_until(window - timedelta(seconds=offset), tz)
             try:
-                rcon(f'servermsg "{message}"')
+                rcon('servermsg "%s"' % message)
                 log.info("Warned players: %s", message)
             except Exception as exc:
                 log.warning("Could not warn players: %s", exc)
 
         sleep_until(window, tz)
         run_window()
-
-        # The container is on its way down; wait past the window so a fast
-        # restart cannot trigger a second run for the same day.
         time.sleep(120)
 
 
