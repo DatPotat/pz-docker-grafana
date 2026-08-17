@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -euo pipefail
 
 PZ_SERVER_DIR="${PZ_SERVER_DIR:-/opt/pzserver}"
