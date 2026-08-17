@@ -22,6 +22,12 @@ echo " Validate:    ${PZ_VALIDATE}"
 echo "=========================================="
 
 # --- 1. Install or update the server via SteamCMD -------------------------
+MANIFEST="${PZ_SERVER_DIR}/steamapps/appmanifest_${STEAM_APP_ID}.acf"
+if [ -f "${MANIFEST}" ] && ! grep -q '"UpdateResult"[[:space:]]*"0"' "${MANIFEST}"; then
+    echo "Stale SteamCMD manifest, removing it before the update"
+    rm -f "${MANIFEST}"
+fi
+
 echo "[1/3] Updating server files (app ${STEAM_APP_ID})..."
 if [ "${PZ_VALIDATE}" = "true" ]; then
     steamcmd +force_install_dir "${PZ_SERVER_DIR}" \
