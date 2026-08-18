@@ -202,6 +202,50 @@ docker compose start zomboid
  
 Каталог `.old` не удаляйте, пока не убедитесь, что мир загрузился правильно. Имя папки мира обязано совпадать с `PZ_SERVER_NAME`, иначе сервер молча создаст пустой мир вместо ошибки.
 
+## Восстановление из бэкапа
+### Где что лежит
+| Каталог | Содержимое | Периодичность |
+|---|---|---|
+| `backups/` | `.tar`, наши: мир, игроки и конфиг сервера | раз в сутки, при обслуживании |
+| `data/Zomboid/backups/period/` | `.zip`, игровые: только мир | 	по `BackupsPeriod` |
+| `data/Zomboid/backups/startup/` | то же, при каждом запуске сервера | на каждый старт |
+| `data/Zomboid/backups/version/` | 	то же, при обновлении игры | редко |
+
+### Восстановление
+```bash
+# 1. Остановить сервер
+docker compose stop zomboid
+
+# 2. Вывести нужный архив из-под ротации
+cp data/Zomboid/backups/period/backup_2.zip ~/restore.zip
+
+# 3. Посмотреть, что внутри: время создания, имя сервера, версия мира
+unzip -l ~/restore.zip | head -15
+
+# 4. Отложить текущий мир, не удаляя
+mv data/Zomboid/Saves/Multiplayer/<имя-сервера> \
+   data/Zomboid/Saves/Multiplayer/<имя-сервера>.before-restore
+
+# 5. Распаковать только мир
+unzip -q ~/restore.zip "Saves/*" -d data/Zomboid/
+
+# 6. Запустить
+docker compose start zomboid
+docker compose logs -f zomboid
+
+# Из .tar шаги те же, меняется только пятый
+tar -xf backups/pz-backup-<дата>.tar -C data/Zomboid Saves
+```
+
+### Если откат не устроил
+```bash
+docker compose stop zomboid
+rm -rf data/Zomboid/Saves/Multiplayer/<имя-сервера>
+mv data/Zomboid/Saves/Multiplayer/<имя-сервера>.before-restore \
+   data/Zomboid/Saves/Multiplayer/<имя-сервера>
+docker compose start zomboid
+```
+
 ## Ограничения
  
 - Нет метрик JVM: без Java-агента расход памяти не виден, признак нехватки `-Xmx` - только счётчик ошибок OutOfMemory
