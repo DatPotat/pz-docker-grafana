@@ -88,6 +88,12 @@ if ! grep -q -- "-Xms" "${JVM_CONFIG}"; then
     sed -i -E "s/\"-Xmx${PZ_JVM_XMX}\"/\"-Xms${PZ_JVM_XMS}\", \"-Xmx${PZ_JVM_XMX}\"/" "${JVM_CONFIG}"
 fi
 
+# "-XX:ZUncommitDelay" - будет работать если отличаются -Xms и -Xmx
+for flag in "-XX:+AlwaysPreTouch" "-XX:ZUncommitDelay=300"; do
+    grep -q -- "${flag}" "${JVM_CONFIG}" || \
+        sed -i -E "s/\"-Xmx${PZ_JVM_XMX}\"/\"-Xmx${PZ_JVM_XMX}\", \"${flag}\"/" "${JVM_CONFIG}"
+done
+
 xms_count=$(grep -c -- "-Xms${PZ_JVM_XMS}" "${JVM_CONFIG}" || true)
 xmx_count=$(grep -c -- "-Xmx${PZ_JVM_XMX}" "${JVM_CONFIG}" || true)
 if [ "${xms_count}" -lt 1 ] || [ "${xmx_count}" -lt 1 ]; then
