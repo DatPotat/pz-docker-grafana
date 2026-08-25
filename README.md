@@ -217,20 +217,24 @@ docker compose start zomboid
 # 1. Остановить сервер
 docker compose stop zomboid
 
-# 2. Вывести нужный архив из-под ротации
+# 2. Вывести все доступные бэкапы
+du -sh backups data/Zomboid/backups
+ls -lht backups/ data/Zomboid/backups/*/
+
+# 3. Вывести нужный архив из-под ротации
 cp data/Zomboid/backups/period/backup_2.zip ~/restore.zip
 
-# 3. Посмотреть, что внутри: время создания, имя сервера, версия мира
+# 4. Посмотреть, что внутри: время создания, имя сервера, версия мира
 unzip -l ~/restore.zip | head -15
 
-# 4. Отложить текущий мир, не удаляя
+# 5. Отложить текущий мир, не удаляя
 mv data/Zomboid/Saves/Multiplayer/<имя-сервера> \
    data/Zomboid/Saves/Multiplayer/<имя-сервера>.before-restore
 
-# 5. Распаковать только мир
+# 6. Распаковать только мир
 unzip -q ~/restore.zip "Saves/*" -d data/Zomboid/
 
-# 6. Запустить
+# 7. Запустить
 docker compose start zomboid
 docker compose logs -f zomboid
 
