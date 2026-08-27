@@ -60,15 +60,10 @@ MaxPlayers=${PZ_MAX_PLAYERS:-32}
 Password=${PZ_SERVER_PASSWORD:-}
 RCONPort=${PZ_RCON_PORT:-27015}
 RCONPassword=${PZ_RCON_PASSWORD:-}
-# Broadcasts a chat message on player death. Required by pz_player_deaths_total.
 AnnounceDeath=true
-# Periodic world flush in real minutes. 0 (the game default) disables it and
-# risks losing progress on a crash; it also makes pz_autosave_total dead.
 SaveWorldEveryMinutes=10
-# The game's own backups. Period is in minutes, 0 disables them. Count applies
-# per backup type, and one archive of a grown world runs close to a gigabyte.
-BackupsPeriod=180
-BackupsCount=4
+BackupsPeriod=120
+BackupsCount=6
 EOF
 fi
 

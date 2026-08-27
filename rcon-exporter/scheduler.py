@@ -17,7 +17,7 @@ log = logging.getLogger("pz-scheduler")
 RCON_HOST = os.environ.get("RCON_HOST", "zomboid")
 RCON_PORT = int(os.environ.get("RCON_PORT", "27015"))
 RCON_PASSWORD = os.environ.get("RCON_PASSWORD", "")
-MAINTENANCE_TIME = os.environ.get("MAINTENANCE_TIME", "13:00")
+MAINTENANCE_TIME = os.environ.get("MAINTENANCE_TIME", "14:00")
 MAINTENANCE_TZ = os.environ.get("MAINTENANCE_TZ", "Europe/Moscow")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", "/backups"))
@@ -29,22 +29,28 @@ SHUTDOWN_SETTLE_SECONDS = int(os.environ.get("SHUTDOWN_SETTLE_SECONDS", "20"))
 
 BACKUP_PATHS = ["Saves", "db", "Server"]
 
-WARNINGS = [
-    (600, "Перезапуск сервера через 10 минут"),
-    (300, "Перезапуск сервера через 5 минут"),
-    (60, "Перезапуск сервера через 1 минуту"),
-    (30, "Перезапуск сервера через 30 секунд"),
-    (10, "Перезапуск сервера через 10 секунд"),
-    (9, "Перезапуск сервера через 9 секунд"),
-    (8, "Перезапуск сервера через 8 секунд"),
-    (7, "Перезапуск сервера через 7 секунд"),
-    (6, "Перезапуск сервера через 6 секунд"),
-    (5, "Перезапуск сервера через 5 секунд"),
-    (4, "Перезапуск сервера через 4 секунды"),
-    (3, "Перезапуск сервера через 3 секунды"),
-    (2, "Перезапуск сервера через 2 секунды"),
-    (1, "Перезапуск сервера через 1 секунду"),
-]
+WARNING_OFFSETS = (600, 300, 60, 30, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+
+
+def plural(n, forms):
+    if n % 100 // 10 == 1:
+        return forms[2]
+    tail = n % 10
+    if tail == 1:
+        return forms[0]
+    if 2 <= tail <= 4:
+        return forms[1]
+    return forms[2]
+
+
+def countdown_message(seconds):
+    if seconds >= 60 and seconds % 60 == 0:
+        value = seconds // 60
+        unit = plural(value, ("минуту", "минуты", "минут"))
+    else:
+        value = seconds
+        unit = plural(value, ("секунду", "секунды", "секунд"))
+    return "Перезапуск сервера через %d %s" % (value, unit)
 
 backup_last_success = Gauge(
     "pz_backup_last_success_timestamp", "Unix time of the last successful backup"
@@ -192,8 +198,9 @@ def main():
         window = next_window(datetime.now(tz))
         log.info("Next maintenance window: %s", window.isoformat())
 
-        for offset, message in WARNINGS:
+        for offset in WARNING_OFFSETS:
             sleep_until(window - timedelta(seconds=offset), tz)
+            message = countdown_message(offset)
             try:
                 rcon('servermsg "%s"' % message)
                 log.info("Warned players: %s", message)
