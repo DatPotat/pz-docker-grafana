@@ -23,6 +23,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", "/backups"))
 BACKUP_KEEP_DAYS = int(os.environ.get("BACKUP_KEEP_DAYS", "3"))
 BACKUP_TIMEOUT = int(os.environ.get("BACKUP_TIMEOUT", "900"))
+BACKUP_COMPRESS_LEVEL = int(os.environ.get("BACKUP_COMPRESS_LEVEL", "6"))
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "9116"))
 SAVE_SETTLE_SECONDS = int(os.environ.get("SAVE_SETTLE_SECONDS", "30"))
 SHUTDOWN_SETTLE_SECONDS = int(os.environ.get("SHUTDOWN_SETTLE_SECONDS", "20"))
@@ -97,15 +98,15 @@ def _on_timeout(signum, frame):
 
 def make_backup():
     stamp = datetime.now(ZoneInfo(MAINTENANCE_TZ)).strftime("%Y-%m-%dT%H-%M")
-    archive = BACKUP_DIR / ("pz-backup-%s.tar" % stamp)
-    partial = BACKUP_DIR / ("pz-backup-%s.tar.partial" % stamp)
+    archive = BACKUP_DIR / ("pz-backup-%s.tar.gz" % stamp)
+    partial = BACKUP_DIR / ("pz-backup-%s.tar.gz.partial" % stamp)
     started = time.time()
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     signal.signal(signal.SIGALRM, _on_timeout)
     signal.alarm(BACKUP_TIMEOUT)
     try:
-        with tarfile.open(partial, "w") as tar:
+        with tarfile.open(partial, "w:gz", compresslevel=BACKUP_COMPRESS_LEVEL) as tar:
             for name in BACKUP_PATHS:
                 source = DATA_DIR / name
                 if source.exists():
